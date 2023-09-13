@@ -1,112 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { GoogleMap, LoadScript, DrawingManager, useJsApiLoader } from '@react-google-maps/api';
 
-function App() {
-  const [step, setStep] = useState(1);
-  const [selfMount, setSelfMount] = useState(null);
-  const [consumption, setConsumption] = useState(0);
-  const [householdSize, setHouseholdSize] = useState(0);
-  const [roofType, setRoofType] = useState('');
-  const [roofAngle, setRoofAngle] = useState(0);
-  const [electricianService, setElectricianService] = useState(false);
-  const [planningService, setPlanningService] = useState(false);
-  const [price, setPrice] = useState(0);
+const MapComponent = ({ address }) => {
+    const [center, setCenter] = useState(null);
+    const mapRef = useRef();
 
-  const nextStep = () => setStep(step + 1);
+    const { isLoaded } = useJsApiLoader({
+        id: 'google-map-script',
+        googleMapsApiKey: "process.env.REACT_APP_GOOGLE_MAPS_API_KEY",
+    });
 
-  const handleConsumption = (value) => {
-    setConsumption(value);
-    nextStep();
-  };
-
-  const handleHouseholdSize = (size) => {
-    const kwhMap = {
-      1: 2000,
-      2: 4000,
-      3: 6000,
-      4: 8000,
-      5: 10000,
+    const onLoad = (map) => {
+        mapRef.current = map;
     };
-    setHouseholdSize(size);
-    setConsumption(kwhMap[size]);
-    nextStep();
-  };
 
-  const handleRoofAngle = (angle) => {
-    setRoofAngle(angle);
-    nextStep();
-  };
+    const onUnmount = () => {
+        mapRef.current = null;
+    };
 
-  const calculatePrice = () => {
-    const basePrice = 0.8 * 2 * consumption*250;
-    const electricianPrice = electricianService ? 1000 : 0;
-    const planningPrice = planningService ? 1000 : 0;
-    setPrice(basePrice + electricianPrice + planningPrice);
-  };
+    const fetchGeocode = async () => {
+        const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${address}&key=YOUR_GOOGLE_MAPS_API_KEY`);
+        const data = await response.json();
+        if (data.results && data.results.length > 0) {
+            const location = data.results[0].geometry.location;
+            setCenter(location);
+        }
+    };
 
-  return (
-    <div>
-      <h1>PV-Konfigurator</h1>
-      <div>{(step / 7) * 100}% abgeschlossen</div>
-      {step === 1 && (
-        <div>
-          <p>Würden Sie die PV-Anlage selbst montieren?</p>
-          <button onClick={() => { setSelfMount(true); nextStep(); }}>Ja</button>
-          <button onClick={() => { setSelfMount(false); nextStep(); }}>Nein</button>
-        </div>
-      )}
-      {step === 2 && (
-        <div>
-          <p>Geben Sie Ihren jährlichen Stromverbrauch in kWh an:</p>
-          <input type="number" onChange={(e) => handleConsumption(e.target.value)} />
-          <p>Oder wählen Sie die Anzahl der Personen in Ihrem Haushalt:</p>
-          {[1, 2, 3, 4, 5].map((size) => (
-            <button key={size} onClick={() => handleHouseholdSize(size)}>
-              {size} Personen
-            </button>
-          ))}
-        </div>
-      )}
-      {step === 3 && (
-        <div>
-          <p>Wählen Sie Ihren Dachtyp:</p>
-          {['Flachdach', 'Schrägdach', 'Pultdach'].map((type) => (
-            <button key={type} onClick={() => { setRoofType(type); nextStep(); }}>
-              {type}
-            </button>
-          ))}
-        </div>
-      )}
-      {step === 4 && (
-        <div>
-          <p>Wählen Sie Ihre Dachneigung:</p>
-          {[5, 15, 20, 30, 45].map((angle) => (
-            <button key={angle} onClick={() => handleRoofAngle(angle)}>
-              {angle}%
-            </button>
-          ))}
-        </div>
-      )}
-      {step === 5 && (
-        <div>
-          <p>Möchten Sie unseren Elektrikerservice in Anspruch nehmen?</p>
-          <button onClick={() => { setElectricianService(true); nextStep(); calculatePrice(); }}>Ja</button>
-          <button onClick={() => { setElectricianService(false); nextStep(); calculatePrice(); }}>Nein</button>
-        </div>
-      )}
-      {step === 6 && (
-        <div>
-          <p>Möchten Sie, dass die Planung und Anmeldung der Anlage auch durch uns übernommen wird?</p>
-          <button onClick={() => { setPlanningService(true); nextStep(); calculatePrice(); }}>Ja</button>
-          <button onClick={() => { setPlanningService(false); nextStep(); calculatePrice(); }}>Nein</button>
-        </div>
-      )}
-      {step === 7 && (
-        <div>
-          <p>Endpreis: {price} €</p>
-        </div>
-      )}
-    </div>
-  );
-}
+    useEffect(() => {
+        fetchGeocode();
+    }, [address]);
 
-export default App;
+    return isLoaded && center ? (
+        <GoogleMap
+            id="drawing-map"
+            mapContainerStyle={{ width: '100%', height: '400px' }}
+            center={center}
+            zoom={17}
+            onLoad={onLoad}
+            onUnmount={onUnmount}
+            mapTypeId="satellite"
+        >
+            <DrawingManager
+                onPolygonComplete={(polygon) => {
+                    const path = polygon.getPath().getArray();
+                    console.log('Polygon vertices:', path);
+                }}
+                options={{
+                    drawingControl: true,
+                    drawingControlOptions: {
+                        position: window.google.maps.ControlPosition.TOP_CENTER,
+                        drawingModes: [window.google.maps.drawing.OverlayType.POLYGON],
+                    },
+                    polygonOptions: {
+                        fillColor: '#ffff00',
+                        fillOpacity: 1,
+                        strokeWeight: 5,
+                        clickable: false,
+                        editable: true,
+                        zIndex: 1,
+                    },
+                }}
+            />
+        </GoogleMap>
+    ) : null;
+};
+
+export default MapComponent;
